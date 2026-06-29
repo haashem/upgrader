@@ -134,24 +134,25 @@ class UpgradeAlertState extends State<UpgradeAlert> {
             }
           }
         }
+        final child = widget.child ?? const SizedBox.shrink();
+        if (widget.child == null || !displayed) {
+          return child;
+        }
+
         return Stack(
           children: [
-            widget.child ?? const SizedBox.shrink(),
+            child,
             Positioned.fill(
-              child: Offstage(
-                offstage: !displayed,
-                child: HeroControllerScope.none(
-                  child: Navigator(
-                    key: _dialogNavigatorKey,
-                    onGenerateRoute: (settings) => PageRouteBuilder<void>(
-                      settings: settings,
-                      opaque: false,
-                      barrierColor: Colors.transparent,
-                      pageBuilder: (context, animation, secondaryAnimation) =>
-                          const SizedBox.shrink(),
-                      transitionDuration: Duration.zero,
-                      reverseTransitionDuration: Duration.zero,
-                    ),
+              child: HeroControllerScope.none(
+                child: Navigator(
+                  key: _dialogNavigatorKey,
+                  onGenerateRoute: (settings) => PageRouteBuilder<void>(
+                    settings: settings,
+                    opaque: false,
+                    pageBuilder: (context, animation, secondaryAnimation) =>
+                        const SizedBox.shrink(),
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
                   ),
                 ),
               ),

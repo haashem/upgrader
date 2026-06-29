@@ -94,6 +94,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
+          theme: ThemeData(splashFactory: NoSplash.splashFactory),
           builder: (context, child) => UpgradeAlert(
             upgrader: upgrader,
             onLater: () {
