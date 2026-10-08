@@ -115,7 +115,9 @@ class UpgradeAlertState extends State<UpgradeAlert> {
     }
 
     final hasNavigatorAncestor = Navigator.maybeOf(context) != null;
-    _useDialogNavigator = widget.child != null && !hasNavigatorAncestor;
+    _useDialogNavigator = widget.navigatorKey == null &&
+        widget.child != null &&
+        !hasNavigatorAncestor;
 
     return StreamBuilder(
       initialData: widget.upgrader.state,
