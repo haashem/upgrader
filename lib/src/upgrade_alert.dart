@@ -97,6 +97,7 @@ class UpgradeAlertState extends State<UpgradeAlert> {
   /// Is the alert dialog being displayed right now?
   bool displayed = false;
   bool _useDialogNavigator = false;
+  bool _dialogNavigatorVisible = false;
   final GlobalKey<NavigatorState> _dialogNavigatorKey =
       GlobalKey<NavigatorState>();
 
@@ -139,7 +140,7 @@ class UpgradeAlertState extends State<UpgradeAlert> {
           }
         }
         final child = widget.child ?? const SizedBox.shrink();
-        if (!_useDialogNavigator || !displayed) {
+        if (!_useDialogNavigator || !_dialogNavigatorVisible) {
           return child;
         }
 
@@ -175,6 +176,7 @@ class UpgradeAlertState extends State<UpgradeAlert> {
     }
     if (shouldDisplay) {
       displayed = true;
+      _dialogNavigatorVisible = _useDialogNavigator;
       final appMessages = widget.upgrader.determineMessages(context);
 
       Future.delayed(Duration.zero, () {
@@ -303,21 +305,27 @@ class UpgradeAlertState extends State<UpgradeAlert> {
           ),
         );
 
-    if (isCupertinoApp) {
-      showCupertinoDialog(
-        barrierDismissible: barrierDismissible,
-        context: dialogContext,
-        useRootNavigator: !useDialogNavigator,
-        builder: dialogBuilder,
-      );
-    } else {
-      showDialog(
-        barrierDismissible: barrierDismissible,
-        context: dialogContext,
-        useRootNavigator: !useDialogNavigator,
-        builder: dialogBuilder,
-      );
-    }
+    final dialog = isCupertinoApp
+        ? showCupertinoDialog(
+            barrierDismissible: barrierDismissible,
+            context: dialogContext,
+            useRootNavigator: !useDialogNavigator,
+            builder: dialogBuilder,
+          )
+        : showDialog(
+            barrierDismissible: barrierDismissible,
+            context: dialogContext,
+            useRootNavigator: !useDialogNavigator,
+            builder: dialogBuilder,
+          );
+
+    dialog.then((_) {
+      if (mounted && _dialogNavigatorVisible) {
+        setState(() {
+          _dialogNavigatorVisible = false;
+        });
+      }
+    });
   }
 
   /// Determines if the dialog blocks the current route from being popped.
