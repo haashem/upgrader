@@ -97,6 +97,28 @@ class _CustomUpgradeAlertState extends UpgradeAlertState {
   }
 }
 
+class _NoDialogUpgradeAlert extends UpgradeAlert {
+  _NoDialogUpgradeAlert({super.upgrader, super.child});
+
+  @override
+  UpgradeAlertState createState() => _NoDialogUpgradeAlertState();
+}
+
+class _NoDialogUpgradeAlertState extends UpgradeAlertState {
+  @override
+  void showTheDialog({
+    Key? key,
+    required BuildContext context,
+    required String? title,
+    required String message,
+    required String? releaseNotes,
+    required bool barrierDismissible,
+    required UpgraderMessages messages,
+  }) {
+    // A custom presentation that opens no dialog.
+  }
+}
+
 void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
@@ -253,6 +275,65 @@ void main() {
       await tester.tap(find.text(ignoreTitle));
       await tester.pumpAndSettle();
       expect(find.byType(AlertDialog), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.builder without a navigatorKey leaves the app usable after a barrier tap',
+    (WidgetTester tester) async {
+      var homeTaps = 0;
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          barrierDismissible: true,
+          child: child,
+        ),
+        home: _HomeScreen(onTap: () => homeTaps++),
+      ));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      await tester.tap(find.text('home button'), warnIfMissed: false);
+      await tester.pump();
+      expect(homeTaps, 1);
+    },
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.builder without a navigatorKey closes on later with debugDisplayAlways',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) =>
+            UpgradeAlert(upgrader: _upgrader(), child: child),
+        home: const _HomeScreen(),
+      ));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.tap(find.text(laterTitle));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.builder with a showTheDialog override that opens no dialog',
+    (WidgetTester tester) async {
+      var homeTaps = 0;
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) =>
+            _NoDialogUpgradeAlert(upgrader: _upgrader(), child: child),
+        home: _HomeScreen(onTap: () => homeTaps++),
+      ));
+      await _settle(tester);
+
+      await tester.tap(find.text('home button'), warnIfMissed: false);
+      await tester.pump();
+      expect(homeTaps, 1);
     },
   );
 }

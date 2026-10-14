@@ -97,14 +97,50 @@ class UpgradeAlertState extends State<UpgradeAlert> {
   /// Is the alert dialog being displayed right now?
   bool displayed = false;
   bool _useDialogNavigator = false;
-  bool _dialogNavigatorVisible = false;
+  final _dialogNavigatorVisible = ValueNotifier<bool>(false);
   final GlobalKey<NavigatorState> _dialogNavigatorKey =
       GlobalKey<NavigatorState>();
+  late final _dialogNavigatorObserver =
+      _DialogNavigatorObserver(onRemove: _onDialogRouteRemoved);
 
   @override
   void initState() {
     super.initState();
     widget.upgrader.initialize();
+  }
+
+  @override
+  void dispose() {
+    _dialogNavigatorVisible.dispose();
+    super.dispose();
+  }
+
+  bool get _hasDialogRoute =>
+      _dialogNavigatorKey.currentState?.canPop() ?? false;
+
+  void _onDialogRouteRemoved(Route<dynamic> route) {
+    if (_hasDialogRoute) {
+      return;
+    }
+    final exited = route is TransitionRoute ? route.completed : Future.value();
+    exited.whenComplete(() {
+      if (mounted && !_hasDialogRoute) {
+        _dialogNavigatorVisible.value = false;
+      }
+    });
+  }
+
+  /// Returns the context the dialog should be shown from, mounting the private
+  /// dialog navigator first when it is used.
+  Future<BuildContext> _dialogContext(BuildContext fallback) async {
+    if (!_useDialogNavigator) {
+      return fallback;
+    }
+    _dialogNavigatorVisible.value = true;
+    if (_dialogNavigatorKey.currentContext == null) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    return _dialogNavigatorKey.currentContext ?? fallback;
   }
 
   /// Describes the part of the user interface represented by this widget.
@@ -114,12 +150,13 @@ class UpgradeAlertState extends State<UpgradeAlert> {
       print('upgrader: build UpgradeAlert');
     }
 
-    final hasNavigatorAncestor = Navigator.maybeOf(context) != null;
+    // Above the app's navigator (e.g. MaterialApp.builder) later routes would
+    // cover the dialog, so it is shown on a private navigator stacked on top.
     _useDialogNavigator = widget.navigatorKey == null &&
         widget.child != null &&
-        !hasNavigatorAncestor;
+        Navigator.maybeOf(context) == null;
 
-    return StreamBuilder(
+    final alert = StreamBuilder(
       initialData: widget.upgrader.state,
       stream: widget.upgrader.stateStream,
       builder: (BuildContext context, AsyncSnapshot<UpgraderState> snapshot) {
@@ -141,32 +178,40 @@ class UpgradeAlertState extends State<UpgradeAlert> {
             }
           }
         }
-        final child = widget.child ?? const SizedBox.shrink();
-        if (!_useDialogNavigator || !_dialogNavigatorVisible) {
-          return child;
-        }
+        return widget.child ?? const SizedBox.shrink();
+      },
+    );
 
-        return Stack(
-          children: [
-            child,
-            Positioned.fill(
-              child: HeroControllerScope.none(
-                child: Navigator(
-                  key: _dialogNavigatorKey,
-                  onGenerateRoute: (settings) => PageRouteBuilder<void>(
-                    settings: settings,
-                    opaque: false,
-                    pageBuilder: (context, animation, secondaryAnimation) =>
-                        const SizedBox.shrink(),
-                    transitionDuration: Duration.zero,
-                    reverseTransitionDuration: Duration.zero,
-                  ),
+    if (!_useDialogNavigator) {
+      return alert;
+    }
+
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        alert,
+        Positioned.fill(
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _dialogNavigatorVisible,
+            builder: (context, visible, navigator) =>
+                visible ? navigator! : const SizedBox.shrink(),
+            child: HeroControllerScope.none(
+              child: Navigator(
+                key: _dialogNavigatorKey,
+                observers: [_dialogNavigatorObserver],
+                onGenerateRoute: (settings) => PageRouteBuilder<void>(
+                  settings: settings,
+                  opaque: false,
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const SizedBox.shrink(),
+                  transitionDuration: Duration.zero,
+                  reverseTransitionDuration: Duration.zero,
                 ),
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
   }
 
@@ -178,14 +223,16 @@ class UpgradeAlertState extends State<UpgradeAlert> {
     }
     if (shouldDisplay) {
       displayed = true;
-      _dialogNavigatorVisible = _useDialogNavigator;
       final appMessages = widget.upgrader.determineMessages(context);
 
-      Future.delayed(Duration.zero, () {
+      Future.delayed(Duration.zero, () async {
+        // ignore: use_build_context_synchronously
+        final dialogContext = await _dialogContext(context);
+        if (!mounted) return;
         showTheDialog(
           key: widget.dialogKey ?? const Key('upgrader_alert_dialog'),
           // ignore: use_build_context_synchronously
-          context: context,
+          context: dialogContext,
           title: appMessages.message(UpgraderMessage.title),
           message: widget.upgrader.body(appMessages),
           releaseNotes:
@@ -193,6 +240,10 @@ class UpgradeAlertState extends State<UpgradeAlert> {
           barrierDismissible: widget.barrierDismissible,
           messages: appMessages,
         );
+        // An override may show nothing, which must not leave the barrier up.
+        if (_useDialogNavigator && !_hasDialogRoute) {
+          _dialogNavigatorVisible.value = false;
+        }
       });
     }
   }
@@ -282,10 +333,6 @@ class UpgradeAlertState extends State<UpgradeAlert> {
     // Detect if CupertinoApp is in the widget tree
     final isCupertinoApp =
         context.findAncestorWidgetOfExactType<CupertinoApp>() != null;
-    final useDialogNavigator =
-        _useDialogNavigator && _dialogNavigatorKey.currentContext != null;
-    final dialogContext =
-        useDialogNavigator ? _dialogNavigatorKey.currentContext! : context;
 
     dialogBuilder(BuildContext context) => PopScope(
           canPop: onCanPop(),
@@ -305,27 +352,19 @@ class UpgradeAlertState extends State<UpgradeAlert> {
           ),
         );
 
-    final dialog = isCupertinoApp
-        ? showCupertinoDialog(
-            barrierDismissible: barrierDismissible,
-            context: dialogContext,
-            useRootNavigator: !useDialogNavigator,
-            builder: dialogBuilder,
-          )
-        : showDialog(
-            barrierDismissible: barrierDismissible,
-            context: dialogContext,
-            useRootNavigator: !useDialogNavigator,
-            builder: dialogBuilder,
-          );
-
-    dialog.then((_) {
-      if (mounted && _dialogNavigatorVisible) {
-        setState(() {
-          _dialogNavigatorVisible = false;
-        });
-      }
-    });
+    if (isCupertinoApp) {
+      showCupertinoDialog(
+        barrierDismissible: barrierDismissible,
+        context: context,
+        builder: dialogBuilder,
+      );
+    } else {
+      showDialog(
+        barrierDismissible: barrierDismissible,
+        context: context,
+        builder: dialogBuilder,
+      );
+    }
   }
 
   /// Determines if the dialog blocks the current route from being popped.
@@ -441,4 +480,18 @@ class UpgradeAlertState extends State<UpgradeAlert> {
             child: Text(text ?? ''))
         : TextButton(onPressed: onPressed, child: Text(text ?? ''));
   }
+}
+
+class _DialogNavigatorObserver extends NavigatorObserver {
+  _DialogNavigatorObserver({required this.onRemove});
+
+  final void Function(Route<dynamic> route) onRemove;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      onRemove(route);
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
+      onRemove(route);
 }
