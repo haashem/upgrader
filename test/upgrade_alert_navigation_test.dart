@@ -4,7 +4,9 @@
 // system back, custom dialogs, and placement in MaterialApp.builder.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:upgrader/upgrader.dart';
@@ -31,6 +33,25 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.pump(const Duration(seconds: 1));
   await tester.pumpAndSettle();
+}
+
+/// Sends a system back through the binding, as Android does.
+Future<void> _systemBack(WidgetTester tester) async {
+  await tester.binding.handlePopRoute();
+  await tester.pumpAndSettle();
+}
+
+/// Returns whether `SystemNavigator.pop` (exit the app) has been called.
+bool Function() _trackSystemNavigatorPop(WidgetTester tester) {
+  var popped = false;
+  final messenger = tester.binding.defaultBinaryMessenger;
+  messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+    if (call.method == 'SystemNavigator.pop') popped = true;
+    return null;
+  });
+  addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+  return () => popped;
 }
 
 /// Wraps the whole app with [alert] using [MaterialApp.builder].
@@ -279,6 +300,85 @@ void main() {
   );
 
   testWidgets(
+    'test UpgradeAlert in MaterialApp.builder without a navigatorKey blocks system back',
+    (WidgetTester tester) async {
+      final systemNavigatorPopped = _trackSystemNavigatorPop(tester);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          shouldPopScope: () => false,
+          child: child,
+        ),
+        home: const _HomeScreen(),
+      ));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await _systemBack(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(systemNavigatorPopped(), false,
+          reason: 'system back should be handled by the dialog, not exit');
+    },
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.builder without a navigatorKey closes on system back',
+    (WidgetTester tester) async {
+      var homeTaps = 0;
+      final systemNavigatorPopped = _trackSystemNavigatorPop(tester);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          shouldPopScope: () => true,
+          child: child,
+        ),
+        home: _HomeScreen(onTap: () => homeTaps++),
+      ));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await _systemBack(tester);
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(systemNavigatorPopped(), false);
+
+      await tester.tap(find.text('home button'), warnIfMissed: false);
+      await tester.pump();
+      expect(homeTaps, 1,
+          reason: 'the app should accept taps after the dialog is dismissed');
+    },
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.router builder handles system back',
+    (WidgetTester tester) async {
+      final router = GoRouter(routes: [
+        GoRoute(path: '/', builder: (context, state) => const _HomeScreen()),
+        GoRoute(
+            path: '/second',
+            builder: (context, state) => const Text('second screen')),
+      ]);
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(MaterialApp.router(
+        routerConfig: router,
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          shouldPopScope: () => false,
+          child: child,
+        ),
+      ));
+      router.push('/second');
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await _systemBack(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('second screen'), findsOneWidget,
+          reason: 'system back should not pop the route under the dialog');
+    },
+  );
+
+  testWidgets(
     'test UpgradeAlert in MaterialApp.builder without a navigatorKey leaves the app usable after a barrier tap',
     (WidgetTester tester) async {
       var homeTaps = 0;
@@ -300,6 +400,34 @@ void main() {
       await tester.tap(find.text('home button'), warnIfMissed: false);
       await tester.pump();
       expect(homeTaps, 1);
+    },
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.builder without a navigatorKey blocks back on the app navigator',
+    (WidgetTester tester) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          shouldPopScope: () => false,
+          child: child,
+        ),
+        home: const _HomeScreen(),
+      ));
+      navigatorKey.currentState!.push(MaterialPageRoute<void>(
+          builder: (context) => const Text('second screen')));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      final dynamic widgetsAppState = tester.state(find.byType(WidgetsApp));
+      await widgetsAppState.didPopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('second screen'), findsOneWidget,
+          reason: 'system back should not pop the route under the dialog');
     },
   );
 

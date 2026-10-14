@@ -93,41 +93,124 @@ class UpgradeAlert extends StatefulWidget {
 }
 
 /// The [UpgradeAlert] widget state.
-class UpgradeAlertState extends State<UpgradeAlert> {
+class UpgradeAlertState extends State<UpgradeAlert>
+    with WidgetsBindingObserver {
   /// Is the alert dialog being displayed right now?
   bool displayed = false;
   bool _useDialogNavigator = false;
   final _dialogNavigatorVisible = ValueNotifier<bool>(false);
   final GlobalKey<NavigatorState> _dialogNavigatorKey =
       GlobalKey<NavigatorState>();
-  late final _dialogNavigatorObserver =
-      _DialogNavigatorObserver(onRemove: _onDialogRouteRemoved);
+  final GlobalKey _appKey = GlobalKey();
+  late final _dialogNavigatorObserver = _DialogNavigatorObserver(
+    onPush: _onDialogRoutePushed,
+    onRemove: _onDialogRouteRemoved,
+  );
+  late final _appPopEntry = _ForwardingPopEntry(_popDialogNavigator);
+  ModalRoute<dynamic>? _appPopEntryRoute;
 
   @override
   void initState() {
     super.initState();
+    // Registered here so it runs before a descendant Router's back dispatcher.
+    WidgetsBinding.instance.addObserver(this);
     widget.upgrader.initialize();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _detachAppPopEntry();
+    _appPopEntry.dispose();
     _dialogNavigatorVisible.dispose();
     super.dispose();
+  }
+
+  /// Forwards system back to the private dialog navigator.
+  @override
+  Future<bool> didPopRoute() async {
+    if (!_hasDialogRoute) {
+      return false;
+    }
+    await _popDialogNavigator();
+    // Consume back even when the dialog refuses to pop, so it never reaches the app.
+    return true;
   }
 
   bool get _hasDialogRoute =>
       _dialogNavigatorKey.currentState?.canPop() ?? false;
 
+  Future<void> _popDialogNavigator() async {
+    if (widget.upgrader.state.debugLogging) {
+      print('upgrader: back forwarded to the dialog navigator');
+    }
+    await _dialogNavigatorKey.currentState?.maybePop();
+  }
+
+  void _onDialogRoutePushed() {
+    if (_hasDialogRoute) {
+      _attachAppPopEntry();
+    }
+  }
+
   void _onDialogRouteRemoved(Route<dynamic> route) {
     if (_hasDialogRoute) {
       return;
     }
+    _detachAppPopEntry();
     final exited = route is TransitionRoute ? route.completed : Future.value();
     exited.whenComplete(() {
       if (mounted && !_hasDialogRoute) {
         _dialogNavigatorVisible.value = false;
       }
     });
+  }
+
+  /// Blocks back on the app's navigator, which receives it before this widget.
+  void _attachAppPopEntry() {
+    final route = _appTopRoute();
+    if (route == _appPopEntryRoute) {
+      return;
+    }
+    _detachAppPopEntry();
+    // (Un)registering dispatches a NavigationNotification that re-enters here.
+    if (_appPopEntryRoute != null) {
+      return;
+    }
+    _appPopEntryRoute = route;
+    route?.registerPopEntry(_appPopEntry);
+  }
+
+  void _detachAppPopEntry() {
+    final route = _appPopEntryRoute;
+    _appPopEntryRoute = null;
+    route?.unregisterPopEntry(_appPopEntry);
+  }
+
+  ModalRoute<dynamic>? _appTopRoute() {
+    final navigator = _findAppNavigator();
+    Route<dynamic>? top;
+    // NavigatorState has no public top route; a predicate that matches first pops nothing.
+    navigator?.popUntil((route) {
+      top = route;
+      return true;
+    });
+    return top is ModalRoute ? top as ModalRoute<dynamic> : null;
+  }
+
+  NavigatorState? _findAppNavigator() {
+    NavigatorState? found;
+    void visit(Element element) {
+      if (found != null) return;
+      if (element is StatefulElement && element.state is NavigatorState) {
+        found = element.state as NavigatorState;
+        return;
+      }
+      element.visitChildren(visit);
+    }
+
+    _appKey.currentContext?.visitChildElements(visit);
+    return found;
   }
 
   /// Returns the context the dialog should be shown from, mounting the private
@@ -189,7 +272,15 @@ class UpgradeAlertState extends State<UpgradeAlert> {
     return Stack(
       fit: StackFit.passthrough,
       children: [
-        alert,
+        NotificationListener<NavigationNotification>(
+          onNotification: (_) {
+            if (_hasDialogRoute) {
+              _attachAppPopEntry();
+            }
+            return false;
+          },
+          child: KeyedSubtree(key: _appKey, child: alert),
+        ),
         Positioned.fill(
           child: ValueListenableBuilder<bool>(
             valueListenable: _dialogNavigatorVisible,
@@ -483,9 +574,13 @@ class UpgradeAlertState extends State<UpgradeAlert> {
 }
 
 class _DialogNavigatorObserver extends NavigatorObserver {
-  _DialogNavigatorObserver({required this.onRemove});
+  _DialogNavigatorObserver({required this.onPush, required this.onRemove});
 
+  final VoidCallback onPush;
   final void Function(Route<dynamic> route) onRemove;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) => onPush();
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
@@ -494,4 +589,23 @@ class _DialogNavigatorObserver extends NavigatorObserver {
   @override
   void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
       onRemove(route);
+}
+
+/// Blocks a pop on the route it is registered with and reports it instead.
+class _ForwardingPopEntry extends PopEntry<Object?> {
+  _ForwardingPopEntry(this.onBlockedPop);
+
+  final VoidCallback onBlockedPop;
+
+  @override
+  final ValueNotifier<bool> canPopNotifier = ValueNotifier<bool>(false);
+
+  @override
+  void onPopInvokedWithResult(bool didPop, Object? result) {
+    if (!didPop) {
+      onBlockedPop();
+    }
+  }
+
+  void dispose() => canPopNotifier.dispose();
 }
