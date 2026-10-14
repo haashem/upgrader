@@ -289,17 +289,21 @@ class UpgradeAlertState extends State<UpgradeAlert>
             valueListenable: _dialogNavigatorVisible,
             builder: (context, visible, navigator) =>
                 visible ? navigator! : const SizedBox.shrink(),
-            child: HeroControllerScope.none(
-              child: Navigator(
-                key: _dialogNavigatorKey,
-                observers: [_dialogNavigatorObserver],
-                onGenerateRoute: (settings) => PageRouteBuilder<void>(
-                  settings: settings,
-                  opaque: false,
-                  pageBuilder: (context, animation, secondaryAnimation) =>
-                      const SizedBox.shrink(),
-                  transitionDuration: Duration.zero,
-                  reverseTransitionDuration: Duration.zero,
+            child: NotificationListener<NavigationNotification>(
+              // Drop its "can't pop", or Android back would close the app.
+              onNotification: (notification) => !notification.canHandlePop,
+              child: HeroControllerScope.none(
+                child: Navigator(
+                  key: _dialogNavigatorKey,
+                  observers: [_dialogNavigatorObserver],
+                  onGenerateRoute: (settings) => PageRouteBuilder<void>(
+                    settings: settings,
+                    opaque: false,
+                    pageBuilder: (context, animation, secondaryAnimation) =>
+                        const SizedBox.shrink(),
+                    transitionDuration: Duration.zero,
+                    reverseTransitionDuration: Duration.zero,
+                  ),
                 ),
               ),
             ),

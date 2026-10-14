@@ -494,6 +494,45 @@ void main() {
   }
 
   testWidgets(
+    'test UpgradeAlert in MaterialApp.builder does not let Android back close the app after the dialog closes',
+    (WidgetTester tester) async {
+      final frameworkHandlesBack = <bool>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'SystemNavigator.setFrameworkHandlesBack') {
+          frameworkHandlesBack.add(call.arguments as bool);
+        }
+        return null;
+      });
+      addTearDown(() =>
+          messenger.setMockMethodCallHandler(SystemChannels.platform, null));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        builder: (context, child) =>
+            UpgradeAlert(upgrader: _upgrader(), child: child),
+        home: const _HomeScreen(),
+      ));
+      navigatorKey.currentState!.push(MaterialPageRoute<void>(
+          builder: (context) => const Text('second screen')));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.tap(find.text(laterTitle));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      expect(frameworkHandlesBack, isNotEmpty);
+      expect(frameworkHandlesBack.last, true,
+          reason: 'the app still has a page to go back to, so back must not '
+              'close the app');
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
     'test UpgradeAlert in MaterialApp.router with a navigatorKey stays above go()',
     (WidgetTester tester) async {
       final router = GoRouter(initialLocation: '/splash', routes: [
