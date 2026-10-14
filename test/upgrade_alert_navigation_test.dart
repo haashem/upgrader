@@ -419,9 +419,7 @@ void main() {
       await _settle(tester);
       expect(find.byType(AlertDialog), findsOneWidget);
 
-      final dynamic widgetsAppState = tester.state(find.byType(WidgetsApp));
-      await widgetsAppState.didPopRoute();
-      await tester.pumpAndSettle();
+      await _systemBack(tester);
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('second screen'), findsOneWidget,
@@ -530,6 +528,33 @@ void main() {
               'close the app');
     },
     variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.builder blocks back on a route pushed after the dialog',
+    (WidgetTester tester) async {
+      final navigatorKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navigatorKey,
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          shouldPopScope: () => false,
+          child: child,
+        ),
+        home: const _HomeScreen(),
+      ));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      navigatorKey.currentState!.push(MaterialPageRoute<void>(
+          builder: (context) => const Text('second screen')));
+      await tester.pumpAndSettle();
+
+      await _systemBack(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('second screen'), findsOneWidget,
+          reason: 'back should be blocked on the newly pushed route too');
+    },
   );
 
   testWidgets(
