@@ -206,9 +206,7 @@ void main() {
       await _settle(tester);
       expect(find.byType(AlertDialog), findsOneWidget);
 
-      final dynamic widgetsAppState = tester.state(find.byType(WidgetsApp));
-      await widgetsAppState.didPopRoute();
-      await tester.pumpAndSettle();
+      await _systemBack(tester);
 
       expect(shouldPopScopeCalled, true,
           reason: 'system back should be handled by the dialog');
