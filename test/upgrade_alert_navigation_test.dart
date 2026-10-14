@@ -464,4 +464,65 @@ void main() {
       expect(homeTaps, 1);
     },
   );
+
+  for (final withNavigatorKey in [true, false]) {
+    testWidgets(
+      'test UpgradeAlert in MaterialApp.builder stays above a later pushed route (navigatorKey: $withNavigatorKey)',
+      (WidgetTester tester) async {
+        final navigatorKey = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(MaterialApp(
+          navigatorKey: navigatorKey,
+          builder: (context, child) => UpgradeAlert(
+            upgrader: _upgrader(),
+            navigatorKey: withNavigatorKey ? navigatorKey : null,
+            child: child,
+          ),
+          home: const _HomeScreen(),
+        ));
+        await _settle(tester);
+        expect(find.byType(AlertDialog), findsOneWidget);
+
+        navigatorKey.currentState!.push(MaterialPageRoute<void>(
+            builder: (context) => const Scaffold(body: Text('second'))));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+
+        await tester.tap(find.text(laterTitle));
+        await tester.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.text('second'), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets(
+    'test UpgradeAlert in MaterialApp.router with a navigatorKey stays above go()',
+    (WidgetTester tester) async {
+      final router = GoRouter(initialLocation: '/splash', routes: [
+        GoRoute(
+            path: '/splash',
+            builder: (context, state) => const Text('splash screen')),
+        GoRoute(
+            path: '/home', builder: (context, state) => const _HomeScreen()),
+      ]);
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(MaterialApp.router(
+        routerConfig: router,
+        builder: (context, child) => UpgradeAlert(
+          upgrader: _upgrader(),
+          navigatorKey: router.routerDelegate.navigatorKey,
+          child: child,
+        ),
+      ));
+      await _settle(tester);
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      router.go('/home');
+      await tester.pumpAndSettle();
+      expect(find.text('home button'), findsOneWidget);
+      expect(find.byType(AlertDialog), findsOneWidget,
+          reason: 'replacing the page under the dialog should not dismiss it');
+    },
+  );
 }

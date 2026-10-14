@@ -188,7 +188,7 @@ class UpgradeAlertState extends State<UpgradeAlert>
   }
 
   ModalRoute<dynamic>? _appTopRoute() {
-    final navigator = _findAppNavigator();
+    final navigator = widget.navigatorKey?.currentState ?? _findAppNavigator();
     Route<dynamic>? top;
     // NavigatorState has no public top route; a predicate that matches first pops nothing.
     navigator?.popUntil((route) {
@@ -235,9 +235,9 @@ class UpgradeAlertState extends State<UpgradeAlert>
 
     // Above the app's navigator (e.g. MaterialApp.builder) later routes would
     // cover the dialog, so it is shown on a private navigator stacked on top.
-    _useDialogNavigator = widget.navigatorKey == null &&
-        widget.child != null &&
-        Navigator.maybeOf(context) == null;
+    _useDialogNavigator = widget.child != null &&
+        Navigator.maybeOf(context) == null &&
+        Localizations.maybeLocaleOf(context) != null;
 
     final alert = StreamBuilder(
       initialData: widget.upgrader.state,
