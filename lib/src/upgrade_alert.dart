@@ -79,9 +79,14 @@ class UpgradeAlert extends StatefulWidget {
   /// The [Key] assigned to the dialog when it is shown. Optional.
   final GlobalKey? dialogKey;
 
-  /// A [GlobalKey] for the [NavigatorState] used when showing the upgrade dialog.
-  /// Provide this when using the Router architecture (e.g. with [RouterDelegate])
-  /// so that the correct context is used for navigation.
+  /// Usually not needed.
+  ///
+  /// In `MaterialApp.builder`, the dialog is shown above the whole app, so you
+  /// don't need this key.
+  ///
+  /// Pass the app's navigator key only when [UpgradeAlert] wraps the whole app
+  /// (outside `MaterialApp`) or has no [child]. The dialog is then shown on that
+  /// navigator.
   final GlobalKey<NavigatorState>? navigatorKey;
 
   /// The [child] widget displayed behind the upgrade dialog. If null, a
