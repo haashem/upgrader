@@ -171,14 +171,14 @@ class UpgradeAlertState extends State<UpgradeAlert>
     });
   }
 
-  /// Blocks back on the app's navigator, which receives it before this widget.
+  /// Stops back from popping the app's page under the dialog.
   void _attachAppPopEntry() {
     final route = _appTopRoute();
     final previous = _appPopEntryRoute;
     if (route == previous) {
       return;
     }
-    // Set first: (un)registering dispatches a NavigationNotification that re-enters here.
+    // Set before (un)registering: it notifies the listener that calls this again.
     _appPopEntryRoute = route;
     previous?.unregisterPopEntry(_appPopEntry);
     route?.registerPopEntry(_appPopEntry);
